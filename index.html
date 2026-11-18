@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<style>html.visita button[onclick*="formService"],html.visita button[onclick*="formSalida"],html.visita button[onclick*="formRegreso"],html.visita button[onclick*="fichaUnidad"],html.visita button[onclick*="adjuntar"],html.visita button[onclick*="formFalla"],html.visita button[onclick*="formMant"],html.visita button[onclick*="formMov"]{display:none!important}</style>
 <script>
 /* Fuera de Google: imita google.script.run llamando al servidor por internet, con clave de acceso. */
 (function(){
@@ -14,7 +15,7 @@
     const req = { fn, args, clave: clave(false) };
     return fetch(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(req), credentials:'omit', redirect:'follow' })
       .then(r => { if (!r.ok) throw new Error('El servidor respondió ' + r.status); return r.json(); })
-      .then(r => { if (r.ok) return r.data; if (r.auth){ try{localStorage.removeItem('tablero_clave')}catch(e){} } throw new Error(r.error || 'Error desconocido'); });
+      .then(r => { if (r.ok) { if (r.rol === 'visita') document.documentElement.classList.add('visita'); return r.data; } if (r.auth){ try{localStorage.removeItem('tablero_clave')}catch(e){} } throw new Error(r.error || 'Error desconocido'); });
   }
   function nuevo(ok, fail){
     return new Proxy({}, { get(_, nombre){
