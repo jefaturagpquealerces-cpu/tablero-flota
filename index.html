@@ -67,8 +67,8 @@ a{color:var(--az)}
 <dialog id="dlg"><form method="dialog" id="frm"></form></dialog>
 
 <script>
-const TABS=[['res','Resumen'],['mov','Móviles'],['emb','Embarcaciones'],['rep','Reparaciones'],['man','Mantenimientos'],['des','Movimientos'],['ano','Inconsistencias'],['ale','Alertas']];
-let D=null,tab='res';
+const TABS=[['bas','Móviles en base'],['res','Resumen'],['mov','Móviles'],['emb','Embarcaciones'],['rep','Reparaciones'],['man','Mantenimientos'],['des','Movimientos'],['ano','Inconsistencias'],['ale','Alertas']];
+let D=null,tab='bas';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtF=s=>s?new Date(s).toLocaleDateString('es-AR'):'';
@@ -78,7 +78,7 @@ const prioOrd={CRITICA:0,ALTA:1,MEDIA:2,BAJA:3};
 
 function cargar(){google.script.run.withSuccessHandler(d=>{D=d;$('#upd').textContent='Actualizado '+new Date(d.actualizado).toLocaleString('es-AR');pintar()}).withFailureHandler(e=>alert(e.message)).apiDatos()}
 function pintarNav(){$('#nav').innerHTML=TABS.map(t=>`<button class="${t[0]===tab?'on':''}" onclick="tab='${t[0]}';pintar()">${t[1]}</button>`).join('')}
-function pintar(){pintarNav();if(!D)return;const f={res,mov:()=>flota('MOVIL'),emb:()=>flota('EMBARCACION'),rep,man,des,ano,ale}[tab];$('#main').innerHTML=f()}
+function pintar(){pintarNav();if(!D)return;const f={bas,res,mov:()=>flota('MOVIL'),emb:()=>flota('EMBARCACION'),rep,man,des,ano,ale}[tab];$('#main').innerHTML=f()}
 
 function unit(u){return u.nivel_service||'OK'}
 function card(u){
@@ -87,7 +87,7 @@ function card(u){
   const fallas=D.fallas.filter(f=>f.unidad_id===u.id&&f.estado!=='RESUELTA').length;
   const adj=D.adjuntos.filter(a=>a.unidad_id===u.id).length;
   return `<div class="card ${cls}"><h3>${esc(u.identificador)} <span class="tag ${fuera?'FUERA':u.condicion==='CON OBSERVACIONES'?'OBS':'OK'}">${esc(u.condicion||'OPERATIVO')}</span></h3>
-  <p>${esc(u.marca_modelo)} ${esc(u.anio)}</p><p>📍 Asignado a: <b>${esc(u.asignado_a||'sin asignar')}</b></p>
+  <p>${esc(u.marca_modelo)} ${esc(u.anio)}</p><p>📍 Asignado a: <b>${esc(u.asignado_a||'sin asignar')}</b>${u.tipo==='MOVIL'?' · 🏠 Base: <b>'+esc(u.base||'sin asignar')+'</b>':''}</p>
   <p>Medidor: <b>${u.medidor_actual||0} ${un}</b> · Último service: ${u.medidor_ultimo_service||0} ${un}</p>
   <div class="bar"><i style="width:${pct}%"></i></div>
   <p><span class="tag ${u.nivel_service}">${u.nivel_service}</span> Próximo service en <b>${u.falta} ${un}</b></p>
@@ -149,7 +149,7 @@ function verFicha(uid){
   const mv=D.movimientos.filter(x=>x.unidad_id===uid).slice(0,30),mt=D.mantenimientos.filter(x=>x.unidad_id===uid),fl=D.fallas.filter(x=>x.unidad_id===uid),ad=D.adjuntos.filter(x=>x.unidad_id===uid),an=D.anomalias.filter(x=>x.unidad_id===uid);
   const tabla=(h,f)=>f.length?`<div class="wrap"><table><tr>${h.map(x=>'<th>'+x+'</th>').join('')}</tr>${f.join('')}</table></div>`:'<p style="color:var(--mut)">Sin registros.</p>';
   const html=`<h2 style="margin-top:0">${esc(u.identificador)} <span class="tag ${u.nivel_service}">${u.nivel_service}</span></h2>
-  <p>${esc(u.marca_modelo)} ${esc(u.anio)} · 📍 ${esc(u.asignado_a||'sin asignar')} · ${esc(u.condicion)}</p>
+  <p>${esc(u.marca_modelo)} ${esc(u.anio)} · 🏠 Base: <b>${esc(u.base||'sin asignar')}</b> · 📍 ${esc(u.asignado_a||'sin asignar')} · ${esc(u.condicion)}</p>
   <p>Medidor: <b>${u.medidor_actual||0} ${un}</b> · Último service: <b>${u.medidor_ultimo_service||0} ${un}</b> · Próximo en <b>${u.falta} ${un}</b> (intervalo ${u.intervalo_efectivo})</p>
   <div class="tools"><button class="b" type="button" onclick="formService('${uid}')">Cargar service</button><button class="b s" type="button" onclick="fichaUnidad('${uid}')">Editar datos</button><button class="b s" type="button" onclick="adjuntar('${uid}')">📎 Adjuntar foto/PDF</button><button class="b s" type="button" onclick="formFalla()">Registrar falla</button></div>
   ${an.length?`<h3 style="color:var(--er)">⚠ Inconsistencias (${an.length})</h3>`+tabla(['Fecha','Detalle'],an.map(a=>`<tr><td>${fmtF(a.fecha)}</td><td>${a.motivos.map(esc).join('<br>')}</td></tr>`)):''}
@@ -159,6 +159,41 @@ function verFicha(uid){
   <h3>Archivos adjuntos</h3>${ad.map(a=>`<p>📎 <a href="${esc(a.url)}" target="_blank">${esc(a.nombre)}</a> <small>${fmtF(a.fecha)}</small></p>`).join('')||'<p style="color:var(--mut)">Sin archivos.</p>'}`;
   $('#frm').innerHTML=html+'<div class="tools"><button class="b s" value="cancel">Cerrar</button></div>';$('#dlg').style.maxWidth='900px';$('#dlg').showModal();$('#frm').onsubmit=()=>{$('#dlg').style.maxWidth=''};
 }
+
+
+/* ---- Móviles en base / de recorrida ---- */
+const HORAS_SALIDA=48; /* una salida sin cierre se considera activa solo si tiene menos de estas horas */
+function salidaActiva(uid){
+  const l=D.movimientos.filter(m=>m.unidad_id===uid).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+  const m=l[0];
+  if(!m||(m.medidor_fin!==''&&m.medidor_fin!=null))return null;
+  if(Date.now()-new Date(m.fecha).getTime()>HORAS_SALIDA*36e5)return null;
+  return m}
+function fmtFH(s){return s?new Date(s).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}
+function bas(){
+  const us=D.unidades.filter(u=>u.tipo==='MOVIL'&&u.activo!=='NO');
+  const fuera=[],base=[];
+  us.forEach(u=>{const s=salidaActiva(u.id);(s?fuera:base).push({u,s})});
+  const porBase={};base.forEach(x=>{const b=(x.u.base||'').trim()||'Sin base asignada';(porBase[b]=porBase[b]||[]).push(x.u)});
+  const bases=Object.keys(porBase).sort((a,b)=>a==='Sin base asignada'?1:b==='Sin base asignada'?-1:a.localeCompare(b));
+  const fila=u=>`<tr><td><b>${esc(u.identificador)}</b> ${esc(u.marca_modelo)}</td><td><span class="tag ${u.condicion==='FUERA DE SERVICIO'?'FUERA':u.condicion==='CON OBSERVACIONES'?'OBS':'OK'}">${esc(u.condicion||'OPERATIVO')}</span></td><td>${esc(u.asignado_a||'')}</td><td>${u.medidor_actual||0} km</td><td><button class="b" onclick="formSalida('${u.id}')">Registrar salida</button> <button class="b s" onclick="verFicha('${u.id}')">Ficha</button></td></tr>`;
+  return `<div class="kpis"><div class="kpi"><b style="color:var(--ok)">${base.length}</b><span>En base</span></div><div class="kpi"><b style="color:var(--wa)">${fuera.length}</b><span>De recorrida</span></div><div class="kpi"><b>${us.length}</b><span>Móviles activos</span></div></div>
+  <p style="color:var(--mut);font-size:13px">Un móvil está <b>de recorrida</b> si su último movimiento tiene salida registrada y no tiene km de regreso (hasta ${HORAS_SALIDA} hs). Si no, se considera <b>en su base</b>.</p>
+  <h2>De recorrida (${fuera.length})</h2>
+  <div class="wrap"><table><tr><th>Móvil</th><th>Conductor</th><th>Destino</th><th>Motivo</th><th>Salió</th><th>Km salida</th><th></th></tr>
+  ${fuera.map(x=>`<tr><td><b>${esc(x.u.identificador)}</b> ${esc(x.u.marca_modelo)}<br><small>Base: ${esc(x.u.base||'sin asignar')}</small></td><td>${esc(x.s.conductor)}</td><td>${esc(x.s.destino||x.s.origen)}</td><td>${esc(x.s.motivo)}</td><td>${fmtFH(x.s.fecha)}</td><td>${esc(x.s.medidor_ini)}</td><td><button class="b" onclick="formRegreso('${x.s.id}','${x.u.id}')">Registrar regreso</button></td></tr>`).join('')||'<tr><td colspan=7>Ningún móvil de recorrida ✅</td></tr>'}</table></div>
+  <h2>En base (${base.length})</h2>
+  ${bases.map(b=>`<h3 style="margin:14px 0 6px">🏠 ${esc(b)} <small style="color:var(--mut)">(${porBase[b].length})</small></h3><div class="wrap"><table><tr><th>Móvil</th><th>Condición</th><th>Asignado a</th><th>Medidor</th><th></th></tr>${porBase[b].map(fila).join('')}</table></div>`).join('')||'<p>Sin móviles.</p>'}`}
+
+function formSalida(uid){
+  abrir('Registrar salida — '+esc(U(uid).identificador),
+  `<input type="hidden" name="unidad_id" value="${uid}">`+campo('conductor','Conductor')+`<div class="row2">${campo('origen','Origen',U(uid).base||'')}${campo('destino','Destino')}</div>`+campo('medidor_ini','Km de salida',U(uid).medidor_actual||'','number')+campo('motivo','Motivo'),
+  o=>guardar('apiGuardarMovimiento',o))}
+function formRegreso(mid,uid){
+  const m=D.movimientos.find(x=>x.id===mid)||{};
+  abrir('Registrar regreso — '+esc(U(uid).identificador),
+  `<input type="hidden" name="id" value="${mid}">`+campo('medidor_fin','Km de regreso',m.medidor_ini||'','number'),
+  o=>guardar('apiCerrarMovimiento',o))}
 
 /* ---- Formularios ---- */
 function campo(n,l,v,t,op){v=v==null?'':v;let i;
@@ -178,7 +213,7 @@ function fichaUnidad(id,base){
   const u=id?U(id):Object.assign({tipo:'MOVIL',condicion:'OPERATIVO'},base),m=u.tipo==='MOVIL';
   abrir(id?'Editar unidad':'Nueva unidad',
   `<input type="hidden" name="tipo" value="${u.tipo}">`+campo('identificador',m?'Patente':'Matrícula / nombre',u.identificador)+campo('marca_modelo','Marca / modelo',u.marca_modelo)+campo('anio','Año',u.anio)+
-  campo('asignado_a','Asignado a (intendencia, seccional, guardaparque…)',u.asignado_a)+campo('condicion','Condición',u.condicion,null,['OPERATIVO','CON OBSERVACIONES','FUERA DE SERVICIO'])+
+  campo('base','Base (dónde está el móvil cuando no sale)',u.base)+campo('asignado_a','Asignado a (intendencia, seccional, guardaparque…)',u.asignado_a)+campo('condicion','Condición',u.condicion,null,['OPERATIVO','CON OBSERVACIONES','FUERA DE SERVICIO'])+
   `<div class="row2">`+campo('medidor_actual',m?'Km actuales':'Horas motor actuales',u.medidor_actual,'number')+campo('medidor_ultimo_service',m?'Km del último service':'Horas del último service',u.medidor_ultimo_service,'number')+`</div>`+
   `<div class="row2">`+campo('intervalo_service','Intervalo de service ('+(m?'km':'hs')+') — vacío = general',u.intervalo_service,'number')+campo('margen_alerta','Alertar cuando falten (vacío = general)',u.margen_alerta,'number')+`</div>`+
   campo('er_nombre','Nombre en EarthRanger (si difiere)',u.er_nombre)+campo('notas','Notas',u.notas,'area'),
