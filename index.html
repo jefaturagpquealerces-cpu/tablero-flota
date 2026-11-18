@@ -1,1 +1,204 @@
-<!doctype html><title>Tablero</title>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script>
+/* Fuera de Google: imita google.script.run llamando al servidor por internet, con clave de acceso. */
+(function(){
+  const API_URL = "https://script.google.com/macros/s/AKfycbyVFFew5nqJpQBBPSlDmhrLWXhTAfkX4UgU_b8x2mNekQOgfoNspHLJNv62zkTvMayy/exec";
+  function clave(forzar){
+    let k = null; try { k = localStorage.getItem('tablero_clave'); } catch(e){}
+    if (!k || forzar){ k = prompt('Clave de acceso al tablero:') || ''; try { localStorage.setItem('tablero_clave', k); } catch(e){} }
+    return k;
+  }
+  function llamar(fn, args){
+    const req = { fn, args, clave: clave(false) };
+    return fetch(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(req), credentials:'omit', redirect:'follow' })
+      .then(r => { if (!r.ok) throw new Error('El servidor respondió ' + r.status); return r.json(); })
+      .then(r => { if (r.ok) return r.data; if (r.auth){ try{localStorage.removeItem('tablero_clave')}catch(e){} } throw new Error(r.error || 'Error desconocido'); });
+  }
+  function nuevo(ok, fail){
+    return new Proxy({}, { get(_, nombre){
+      if (nombre === 'withSuccessHandler') return f => nuevo(f, fail);
+      if (nombre === 'withFailureHandler') return f => nuevo(ok, f);
+      return (...args) => { llamar(nombre, args).then(r => ok && ok(r), e => (fail || (x => alert(x.message)))(e)); };
+    }});
+  }
+  window.google = { script: { run: nuevo(null, null) } };
+})();
+</script>
+
+<base target="_top">
+<meta charset="utf-8">
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--tx:#1c2733;--mut:#6b7a8c;--az:#1f3a5f;--ok:#2e8b57;--wa:#e3a008;--er:#c0392b;--bd:#dfe4ea}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Arial;background:var(--bg);color:var(--tx)}
+header{background:var(--az);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+header h1{font-size:18px;margin:0}header small{opacity:.8}
+nav{display:flex;gap:4px;padding:8px 12px;background:#fff;border-bottom:1px solid var(--bd);overflow-x:auto}
+nav button{border:0;background:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;white-space:nowrap;color:var(--mut)}
+nav button.on{background:var(--az);color:#fff}
+main{padding:16px;max-width:1300px;margin:auto}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.kpi{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px}.kpi b{font-size:26px;display:block}.kpi span{color:var(--mut);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;border-left:5px solid var(--ok)}
+.card.ALERTA{border-left-color:var(--wa)}.card.VENCIDO,.card.FUERA{border-left-color:var(--er)}
+.card h3{margin:0 0 4px;font-size:16px}.card p{margin:2px 0;font-size:13px;color:var(--mut)}
+.bar{height:8px;background:#e7ebf0;border-radius:4px;margin:8px 0;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
+.ALERTA .bar i{background:var(--wa)}.VENCIDO .bar i{background:var(--er)}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;color:#fff;background:var(--mut)}
+.tag.CRITICA,.tag.VENCIDO,.tag.FUERA{background:var(--er)}.tag.ALTA,.tag.ALERTA,.tag.OBS{background:var(--wa)}.tag.OK,.tag.OPERATIVO,.tag.RESUELTA,.tag.COMPLETADO{background:var(--ok)}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden;font-size:13px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--bd);vertical-align:top}th{background:#eaeef3}
+.wrap{overflow-x:auto}
+button.b{background:var(--az);color:#fff;border:0;border-radius:6px;padding:7px 12px;cursor:pointer;font-size:13px}button.b.s{background:#fff;color:var(--az);border:1px solid var(--az)}
+.tools{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+input,select,textarea{padding:7px;border:1px solid var(--bd);border-radius:6px;font:inherit;width:100%}
+dialog{border:0;border-radius:12px;padding:18px;max-width:520px;width:94%}dialog::backdrop{background:#0006}
+.f{margin-bottom:10px}.f label{font-size:12px;color:var(--mut);display:block;margin-bottom:2px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+a{color:var(--az)}
+</style>
+</head>
+<body>
+<header><h1>🚙⚓ Tablero de Móviles y Embarcaciones</h1><small id="upd">Cargando…</small></header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<dialog id="dlg"><form method="dialog" id="frm"></form></dialog>
+
+<script>
+const TABS=[['res','Resumen'],['mov','Móviles'],['emb','Embarcaciones'],['rep','Reparaciones'],['man','Mantenimientos'],['des','Movimientos'],['ano','Inconsistencias'],['ale','Alertas']];
+let D=null,tab='res';
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtF=s=>s?new Date(s).toLocaleDateString('es-AR'):'';
+const nm=u=>u?u.identificador+' · '+u.marca_modelo:'(s/d)';
+const U=id=>D.unidades.find(u=>u.id===id);
+const prioOrd={CRITICA:0,ALTA:1,MEDIA:2,BAJA:3};
+
+function cargar(){google.script.run.withSuccessHandler(d=>{D=d;$('#upd').textContent='Actualizado '+new Date(d.actualizado).toLocaleString('es-AR');pintar()}).withFailureHandler(e=>alert(e.message)).apiDatos()}
+function pintarNav(){$('#nav').innerHTML=TABS.map(t=>`<button class="${t[0]===tab?'on':''}" onclick="tab='${t[0]}';pintar()">${t[1]}</button>`).join('')}
+function pintar(){pintarNav();if(!D)return;const f={res,mov:()=>flota('MOVIL'),emb:()=>flota('EMBARCACION'),rep,man,des,ano,ale}[tab];$('#main').innerHTML=f()}
+
+function unit(u){return u.nivel_service||'OK'}
+function card(u){
+  const un=u.tipo==='MOVIL'?'km':'hs',pct=Math.min(100,Math.max(0,u.recorrido_desde_service/u.intervalo_efectivo*100));
+  const fuera=u.condicion==='FUERA DE SERVICIO',cls=fuera?'FUERA':u.nivel_service;
+  const fallas=D.fallas.filter(f=>f.unidad_id===u.id&&f.estado!=='RESUELTA').length;
+  const adj=D.adjuntos.filter(a=>a.unidad_id===u.id).length;
+  return `<div class="card ${cls}"><h3>${esc(u.identificador)} <span class="tag ${fuera?'FUERA':u.condicion==='CON OBSERVACIONES'?'OBS':'OK'}">${esc(u.condicion||'OPERATIVO')}</span></h3>
+  <p>${esc(u.marca_modelo)} ${esc(u.anio)}</p><p>📍 Asignado a: <b>${esc(u.asignado_a||'sin asignar')}</b></p>
+  <p>Medidor: <b>${u.medidor_actual||0} ${un}</b> · Último service: ${u.medidor_ultimo_service||0} ${un}</p>
+  <div class="bar"><i style="width:${pct}%"></i></div>
+  <p><span class="tag ${u.nivel_service}">${u.nivel_service}</span> Próximo service en <b>${u.falta} ${un}</b></p>
+  <p>🔧 Fallas abiertas: ${fallas} · 📎 Adjuntos: ${adj}${D.anomalias.some(a=>a.unidad_id===u.id)?' · <b style="color:var(--er)">⚠ '+D.anomalias.filter(a=>a.unidad_id===u.id).length+' inconsistencias</b>':''}</p>
+  <div class="tools" style="margin:8px 0 0"><button class="b" onclick="verFicha('${u.id}')">Ficha</button><button class="b s" onclick="formService('${u.id}')">Cargar service</button><button class="b s" onclick="fichaUnidad('${u.id}')">Editar</button><button class="b s" onclick="adjuntar('${u.id}')">📎 Adjuntar</button><button class="b s" onclick="verAdj('${u.id}')">Ver archivos</button></div></div>`}
+
+function res(){
+  const us=D.unidades.filter(u=>u.activo!=='NO');
+  const al=us.filter(u=>u.nivel_service!=='OK'),fu=us.filter(u=>u.condicion==='FUERA DE SERVICIO');
+  const ab=D.fallas.filter(f=>f.estado!=='RESUELTA'),cr=ab.filter(f=>f.prioridad==='CRITICA'||f.prioridad==='ALTA');
+  return `<div class="kpis">
+  <div class="kpi"><b>${us.filter(u=>u.tipo==='MOVIL').length}</b><span>Móviles</span></div>
+  <div class="kpi"><b>${us.filter(u=>u.tipo!=='MOVIL').length}</b><span>Embarcaciones</span></div>
+  <div class="kpi"><b style="color:var(--wa)">${al.length}</b><span>Service próximo / vencido</span></div>
+  <div class="kpi"><b style="color:var(--er)">${fu.length}</b><span>Fuera de servicio</span></div>
+  <div class="kpi"><b>${ab.length}</b><span>Fallas abiertas</span></div>
+  <div class="kpi"><b style="color:var(--er)">${cr.length}</b><span>Crítica / alta</span></div></div>
+  <h2>Requieren atención</h2><div class="grid">${al.concat(fu.filter(u=>!al.includes(u))).map(card).join('')||'<p>Todo en orden ✅</p>'}</div>`}
+
+function flota(t){
+  const us=D.unidades.filter(u=>u.tipo===t&&u.activo!=='NO');
+  return `<div class="tools"><button class="b" onclick="fichaUnidad('',{tipo:'${t}'})">+ Nueva ${t==='MOVIL'?'unidad':'embarcación'}</button>
+  <input id="q" placeholder="Buscar…" style="max-width:240px" oninput="filtrar(this.value)"></div><div class="grid" id="g">${us.map(card).join('')}</div>`}
+function filtrar(v){v=v.toLowerCase();document.querySelectorAll('#g .card').forEach(c=>c.style.display=c.textContent.toLowerCase().includes(v)?'':'none')}
+
+function rep(){
+  const l=D.fallas.slice().sort((a,b)=>(a.estado==='RESUELTA')-(b.estado==='RESUELTA')||(prioOrd[a.prioridad]??9)-(prioOrd[b.prioridad]??9));
+  return `<div class="tools"><button class="b" onclick="formFalla()">+ Registrar falla</button></div><div class="wrap"><table><tr><th>Prioridad</th><th>Unidad</th><th>Falla</th><th>Estado</th><th>Fecha</th><th>Reparación realizada</th><th></th></tr>
+  ${l.map(f=>`<tr><td><span class="tag ${f.prioridad}">${esc(f.prioridad)}</span></td><td>${esc(nm(U(f.unidad_id)))}</td><td>${esc(f.descripcion)}</td><td><span class="tag ${f.estado==='RESUELTA'?'RESUELTA':'ALTA'}">${esc(f.estado)}</span></td><td>${fmtF(f.fecha)}</td><td>${esc(f.reparacion_realizada)}</td><td><button class="b s" onclick="formFalla('${f.id}')">Editar</button></td></tr>`).join('')}</table></div>`}
+
+function man(){
+  return `<div class="tools"><button class="b" onclick="formMant()">+ Registrar mantenimiento / service</button></div><div class="wrap"><table><tr><th>Fecha</th><th>Unidad</th><th>Tipo</th><th>Categoría</th><th>Medidor</th><th>Detalle</th><th>Técnico</th><th>Estado</th><th>Origen</th></tr>
+  ${D.mantenimientos.map(m=>`<tr><td>${fmtF(m.fecha)}</td><td>${esc(nm(U(m.unidad_id)))}</td><td>${esc(m.tipo)}</td><td>${esc(m.categoria)}</td><td>${esc(m.medidor)}</td><td>${esc(m.descripcion)}</td><td>${esc(m.tecnico)}</td><td><span class="tag ${m.estado}">${esc(m.estado)}</span></td><td>${esc(m.fuente)}</td></tr>`).join('')}</table></div>`}
+
+function des(){
+  return `<div class="tools"><button class="b" onclick="formMov()">+ Registrar movimiento</button></div><div class="wrap"><table><tr><th>Fecha</th><th>Unidad</th><th>Conductor</th><th>Origen → Destino</th><th>Medidor ini → fin</th><th>Motivo</th><th>Origen dato</th></tr>
+  ${D.movimientos.map(m=>`<tr><td>${fmtF(m.fecha)}</td><td>${esc(nm(U(m.unidad_id)))}</td><td>${esc(m.conductor)}</td><td>${esc(m.origen)} → ${esc(m.destino)}</td><td>${esc(m.medidor_ini)} → ${esc(m.medidor_fin)}</td><td>${esc(m.motivo)}</td><td>${esc(m.fuente)}</td></tr>`).join('')}</table></div>`}
+
+function ale(){
+  const l=D.unidades.filter(u=>u.activo!=='NO'&&u.nivel_service!=='OK').sort((a,b)=>a.falta-b.falta);
+  return `<h2>Alertas de service</h2><div class="wrap"><table><tr><th>Unidad</th><th>Nivel</th><th>Desde último service</th><th>Falta</th></tr>
+  ${l.map(u=>{const un=u.tipo==='MOVIL'?'km':'hs';return `<tr><td>${esc(nm(u))}</td><td><span class="tag ${u.nivel_service}">${u.nivel_service}</span></td><td>${u.recorrido_desde_service} ${un}</td><td>${u.falta} ${un} → gestionar turno</td></tr>`}).join('')||'<tr><td colspan=4>Sin alertas</td></tr>'}</table></div>`}
+
+
+function ano(){
+  return `<h2>Inconsistencias de kilometraje / horas</h2><p style="color:var(--mut);font-size:13px">Se marca cuando el inicio o el cierre difiere más de ${D.cfg.umbral_km_discrepancia||300} km (móviles) o ${D.cfg.umbral_hs_discrepancia||24} hs (embarcaciones) del cierre del evento anterior de la misma unidad.</p>
+  <div class="wrap"><table><tr><th>Fecha</th><th>Unidad</th><th>Conductor</th><th>Detalle</th></tr>
+  ${D.anomalias.map(a=>`<tr><td>${fmtF(a.fecha)}</td><td>${esc(nm(U(a.unidad_id)))}</td><td>${esc(a.conductor)}</td><td>${a.motivos.map(esc).join('<br>')}</td></tr>`).join('')||'<tr><td colspan=4>Sin inconsistencias ✅</td></tr>'}</table></div>`}
+
+function formService(uid){const u=U(uid),m=u.tipo==='MOVIL';
+  abrir('Cargar último service — '+esc(u.identificador),
+  `<input type="hidden" name="unidad_id" value="${uid}"><input type="hidden" name="tipo" value="PREVENTIVO"><input type="hidden" name="categoria" value="SERVICE PERIODICO"><input type="hidden" name="estado" value="COMPLETADO">`+
+  campo('fecha','Fecha del service',new Date().toISOString().slice(0,10),'date')+campo('medidor',m?'Km al momento del service':'Horas de motor al momento del service','','number')+
+  campo('descripcion','Qué se hizo (aceite, filtros, etc.)','','area')+`<div class="row2">${campo('tecnico','Lubricentro / taller')}${campo('costo','Costo','','number')}</div>`,
+  o=>guardar('apiGuardarMantenimiento',o))}
+
+function verFicha(uid){
+  const u=U(uid),m=u.tipo==='MOVIL',un=m?'km':'hs';
+  const mv=D.movimientos.filter(x=>x.unidad_id===uid).slice(0,30),mt=D.mantenimientos.filter(x=>x.unidad_id===uid),fl=D.fallas.filter(x=>x.unidad_id===uid),ad=D.adjuntos.filter(x=>x.unidad_id===uid),an=D.anomalias.filter(x=>x.unidad_id===uid);
+  const tabla=(h,f)=>f.length?`<div class="wrap"><table><tr>${h.map(x=>'<th>'+x+'</th>').join('')}</tr>${f.join('')}</table></div>`:'<p style="color:var(--mut)">Sin registros.</p>';
+  const html=`<h2 style="margin-top:0">${esc(u.identificador)} <span class="tag ${u.nivel_service}">${u.nivel_service}</span></h2>
+  <p>${esc(u.marca_modelo)} ${esc(u.anio)} · 📍 ${esc(u.asignado_a||'sin asignar')} · ${esc(u.condicion)}</p>
+  <p>Medidor: <b>${u.medidor_actual||0} ${un}</b> · Último service: <b>${u.medidor_ultimo_service||0} ${un}</b> · Próximo en <b>${u.falta} ${un}</b> (intervalo ${u.intervalo_efectivo})</p>
+  <div class="tools"><button class="b" type="button" onclick="formService('${uid}')">Cargar service</button><button class="b s" type="button" onclick="fichaUnidad('${uid}')">Editar datos</button><button class="b s" type="button" onclick="adjuntar('${uid}')">📎 Adjuntar foto/PDF</button><button class="b s" type="button" onclick="formFalla()">Registrar falla</button></div>
+  ${an.length?`<h3 style="color:var(--er)">⚠ Inconsistencias (${an.length})</h3>`+tabla(['Fecha','Detalle'],an.map(a=>`<tr><td>${fmtF(a.fecha)}</td><td>${a.motivos.map(esc).join('<br>')}</td></tr>`)):''}
+  <h3>Historial de mantenimientos</h3>${tabla(['Fecha','Tipo','Categoría','Medidor','Detalle','Técnico','Estado'],mt.map(x=>`<tr><td>${fmtF(x.fecha)}</td><td>${esc(x.tipo)}</td><td>${esc(x.categoria)}</td><td>${esc(x.medidor)}</td><td>${esc(x.descripcion)}</td><td>${esc(x.tecnico)}</td><td>${esc(x.estado)}</td></tr>`))}
+  <h3>Fallas y reparaciones</h3>${tabla(['Fecha','Prioridad','Falla','Estado','Reparación'],fl.map(x=>`<tr><td>${fmtF(x.fecha)}</td><td>${esc(x.prioridad)}</td><td>${esc(x.descripcion)}</td><td>${esc(x.estado)}</td><td>${esc(x.reparacion_realizada)}</td></tr>`))}
+  <h3>Últimos movimientos</h3>${tabla(['Fecha','Conductor','Origen → Destino','Medidor'],mv.map(x=>`<tr><td>${fmtF(x.fecha)}</td><td>${esc(x.conductor)}</td><td>${esc(x.origen)} → ${esc(x.destino)}</td><td>${esc(x.medidor_ini)} → ${esc(x.medidor_fin)}</td></tr>`))}
+  <h3>Archivos adjuntos</h3>${ad.map(a=>`<p>📎 <a href="${esc(a.url)}" target="_blank">${esc(a.nombre)}</a> <small>${fmtF(a.fecha)}</small></p>`).join('')||'<p style="color:var(--mut)">Sin archivos.</p>'}`;
+  $('#frm').innerHTML=html+'<div class="tools"><button class="b s" value="cancel">Cerrar</button></div>';$('#dlg').style.maxWidth='900px';$('#dlg').showModal();$('#frm').onsubmit=()=>{$('#dlg').style.maxWidth=''};
+}
+
+/* ---- Formularios ---- */
+function campo(n,l,v,t,op){v=v==null?'':v;let i;
+  if(op)i=`<select name="${n}">${op.map(o=>`<option ${o==v?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+  else if(t==='area')i=`<textarea name="${n}" rows="3">${esc(v)}</textarea>`;
+  else i=`<input name="${n}" type="${t||'text'}" value="${esc(v)}">`;
+  return `<div class="f"><label>${l}</label>${i}</div>`}
+function selUnidad(v,t){return campo('unidad_id','Unidad',v,null,null).replace(/<input[^>]*>/,`<select name="unidad_id">${D.unidades.filter(u=>!t||u.tipo===t).map(u=>`<option value="${u.id}" ${u.id===v?'selected':''}>${esc(nm(u))}</option>`).join('')}</select>`)}
+function abrir(titulo,html,onOk){
+  $('#frm').innerHTML=`<h3>${titulo}</h3>${html}<div class="tools"><button class="b" value="ok">Guardar</button><button class="b s" value="cancel" formnovalidate>Cancelar</button></div>`;
+  const d=$('#dlg');d.showModal();
+  $('#frm').onsubmit=e=>{const ok=e.submitter&&e.submitter.value==='ok';if(ok){const o={};new FormData($('#frm')).forEach((v,k)=>o[k]=v);onOk(o)}};
+}
+function guardar(fn,o){google.script.run.withSuccessHandler(()=>cargar()).withFailureHandler(e=>alert(e.message))[fn](o)}
+
+function fichaUnidad(id,base){
+  const u=id?U(id):Object.assign({tipo:'MOVIL',condicion:'OPERATIVO'},base),m=u.tipo==='MOVIL';
+  abrir(id?'Editar unidad':'Nueva unidad',
+  `<input type="hidden" name="tipo" value="${u.tipo}">`+campo('identificador',m?'Patente':'Matrícula / nombre',u.identificador)+campo('marca_modelo','Marca / modelo',u.marca_modelo)+campo('anio','Año',u.anio)+
+  campo('asignado_a','Asignado a (intendencia, seccional, guardaparque…)',u.asignado_a)+campo('condicion','Condición',u.condicion,null,['OPERATIVO','CON OBSERVACIONES','FUERA DE SERVICIO'])+
+  `<div class="row2">`+campo('medidor_actual',m?'Km actuales':'Horas motor actuales',u.medidor_actual,'number')+campo('medidor_ultimo_service',m?'Km del último service':'Horas del último service',u.medidor_ultimo_service,'number')+`</div>`+
+  `<div class="row2">`+campo('intervalo_service','Intervalo de service ('+(m?'km':'hs')+') — vacío = general',u.intervalo_service,'number')+campo('margen_alerta','Alertar cuando falten (vacío = general)',u.margen_alerta,'number')+`</div>`+
+  campo('er_nombre','Nombre en EarthRanger (si difiere)',u.er_nombre)+campo('notas','Notas',u.notas,'area'),
+  o=>{if(id)o.id=id;guardar('apiGuardarUnidad',o)})}
+function formMov(){abrir('Movimiento',selUnidad('')+campo('conductor','Conductor')+`<div class="row2">${campo('origen','Origen')}${campo('destino','Destino')}</div><div class="row2">${campo('medidor_ini','Medidor inicial','','number')}${campo('medidor_fin','Medidor final','','number')}</div>`+campo('motivo','Motivo'),o=>guardar('apiGuardarMovimiento',o))}
+function formMant(){abrir('Mantenimiento / service',selUnidad('')+`<div class="row2">${campo('tipo','Tipo','','',['PREVENTIVO','CORRECTIVO','REVISION','MODIFICACION'])}${campo('categoria','Categoría','','',['SERVICE PERIODICO','MECANICA','MOTOR','CHAPA Y PINTURA','NEUMATICOS','COMUNICACIONES','SEGURIDAD','RTO'])}</div>`+
+  `<div class="row2">${campo('medidor','Km / hs al momento','','number')}${campo('estado','Estado','','',['EN ESPERA','EN PROGRESO','COMPLETADO'])}</div>`+campo('descripcion','Trabajo realizado','','area')+`<div class="row2">${campo('tecnico','Técnico / taller')}${campo('costo','Costo','','number')}</div>`+campo('repuestos','Repuestos'),o=>guardar('apiGuardarMantenimiento',o))}
+function formFalla(id){const f=id?D.fallas.find(x=>x.id===id):{};abrir('Falla / reparación',selUnidad(f.unidad_id)+campo('descripcion','Falla',f.descripcion,'area')+`<div class="row2">${campo('prioridad','Prioridad',f.prioridad||'MEDIA','',['CRITICA','ALTA','MEDIA','BAJA'])}${campo('estado','Estado',f.estado||'ABIERTA','',['ABIERTA','EN REPARACION','RESUELTA'])}</div>`+campo('reparacion_realizada','Reparación realizada',f.reparacion_realizada,'area'),o=>{if(id)o.id=id;guardar('apiGuardarFalla',o)})}
+
+/* ---- Adjuntos ---- */
+function adjuntar(uid){
+  const i=document.createElement('input');i.type='file';i.multiple=true;i.accept='image/*,application/pdf';
+  i.onchange=async()=>{for(const f of i.files){if(f.size>25*1024*1024){alert(f.name+' supera 25 MB');continue}
+    const b64=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(f)});
+    await new Promise(r=>google.script.run.withSuccessHandler(r).withFailureHandler(e=>{alert(e.message);r()}).apiSubirAdjunto(uid,'UNIDAD','',f.name,f.type||'application/octet-stream',b64))}
+    cargar();alert('Archivos subidos')};i.click()}
+function verAdj(uid){const l=D.adjuntos.filter(a=>a.unidad_id===uid);
+  abrir('Archivos de '+nm(U(uid)),l.map(a=>`<p>📎 <a href="${esc(a.url)}" target="_blank">${esc(a.nombre)}</a> <small>${fmtF(a.fecha)}</small></p>`).join('')||'<p>Sin archivos.</p>',()=>{})}
+
+cargar();setInterval(cargar,300000);
+</script>
+</body>
+</html>
