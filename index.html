@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<style>html.visita button[onclick*="formService"],html.visita button[onclick*="formSalida"],html.visita button[onclick*="formRegreso"],html.visita button[onclick*="fichaUnidad"],html.visita button[onclick*="adjuntar"],html.visita button[onclick*="formFalla"],html.visita button[onclick*="formMant"],html.visita button[onclick*="formMov"]{display:none!important}</style>
+<style>html.visita button[onclick*="formService"],html.visita button[onclick*="formSalida"],html.visita button[onclick*="formRegreso"],html.visita button[onclick*="fichaUnidad"],html.visita button[onclick*="adjuntar"],html.visita button[onclick*="formFalla"],html.visita button[onclick*="formMant"],html.visita button[onclick*="formMov"],html.visita button[onclick*="formIngreso"],html.visita button[onclick*="formSalidaTaller"],html.visita button[onclick*="formTaller"]{display:none!important}</style>
 <script>
 /* Fuera de Google: imita google.script.run llamando al servidor por internet, con clave de acceso. */
 (function(){
@@ -114,10 +114,52 @@ function flota(t){
   <input id="q" placeholder="Buscar…" style="max-width:240px" oninput="filtrar(this.value)"></div><div class="grid" id="g">${us.map(card).join('')}</div>`}
 function filtrar(v){v=v.toLowerCase();document.querySelectorAll('#g .card').forEach(c=>c.style.display=c.textContent.toLowerCase().includes(v)?'':'none')}
 
+function TL(id){return (D.talleres||[]).find(t=>t.id===id)}
 function rep(){
-  const l=D.fallas.slice().sort((a,b)=>(a.estado==='RESUELTA')-(b.estado==='RESUELTA')||(prioOrd[a.prioridad]??9)-(prioOrd[b.prioridad]??9));
-  return `<div class="tools"><button class="b" onclick="formFalla()">+ Registrar falla</button></div><div class="wrap"><table><tr><th>Prioridad</th><th>Unidad</th><th>Falla</th><th>Estado</th><th>Fecha</th><th>Reparación realizada</th><th></th></tr>
-  ${l.map(f=>`<tr><td><span class="tag ${f.prioridad}">${esc(f.prioridad)}</span></td><td>${esc(nm(U(f.unidad_id)))}</td><td>${esc(f.descripcion)}</td><td><span class="tag ${f.estado==='RESUELTA'?'RESUELTA':'ALTA'}">${esc(f.estado)}</span></td><td>${fmtF(f.fecha)}</td><td>${esc(f.reparacion_realizada)}</td><td><button class="b s" onclick="formFalla('${f.id}')">Editar</button></td></tr>`).join('')}</table></div>`}
+  const adm=!document.documentElement.classList.contains('visita');
+  const ord=f=>f.orden===''||f.orden==null?9999:Number(f.orden);
+  const cola=D.fallas.filter(f=>f.estado==='ABIERTA').sort((a,b)=>ord(a)-ord(b)||(prioOrd[a.prioridad]??9)-(prioOrd[b.prioridad]??9));
+  const enT=(D.visitas||[]).filter(v=>v.estado==='EN TALLER');
+  const fin=(D.visitas||[]).filter(v=>v.estado==='FINALIZADA').sort((a,b)=>String(b.fecha_salida).localeCompare(String(a.fecha_salida)));
+  const nf=v=>String(v.fallas_ids).split(',').map(id=>{const f=D.fallas.find(x=>x.id===id);return f?esc(f.descripcion):''}).filter(Boolean).join('; ');
+  const tal=D.talleres||[];
+  return `<h2>Lista de ingreso al taller (${cola.length})</h2><p style="color:var(--mut);font-size:13px">${adm?'Arrastrá las filas con ☰ para cambiar el orden: la de arriba entra primero.':'Orden de ingreso al taller.'}</p>
+  <div class="tools"><button class="b" onclick="formFalla()">+ Registrar falla</button></div>
+  <div class="wrap"><table id="cola"><tr><th></th><th>#</th><th>Unidad</th><th>Falla</th><th>Prioridad</th><th>Desde</th><th></th></tr>
+  ${cola.map((f,i)=>`<tr data-id="${f.id}" ${adm?'draggable="true" ondragstart="dgS(event)" ondragover="dgO(event)" ondrop="dgD(event)" ondragend="dgE()"':''}><td style="cursor:${adm?'grab':'default'}">${adm?'☰':''}</td><td>${i+1}</td><td>${esc(nm(U(f.unidad_id)))}</td><td>${esc(f.descripcion)}</td><td><span class="tag ${f.prioridad}">${esc(f.prioridad)}</span></td><td>${fmtF(f.fecha)}</td><td><button class="b" onclick="formIngreso('${f.id}')">Ingresar a taller</button> <button class="b s" onclick="formFalla('${f.id}')">Editar</button></td></tr>`).join('')||'<tr><td colspan=7>Sin fallas esperando ✅</td></tr>'}</table></div>
+  <h2>En el taller ahora (${enT.length})</h2><div class="wrap"><table><tr><th>Unidad</th><th>Taller</th><th>Ingresó</th><th>Fallas</th><th></th></tr>
+  ${enT.map(v=>`<tr><td>${esc(nm(U(v.unidad_id)))}</td><td>${esc((TL(v.taller_id)||{}).nombre||'')}</td><td>${fmtF(v.fecha_ingreso)}</td><td>${nf(v)}</td><td><button class="b" onclick="formSalidaTaller('${v.id}')">Registrar salida</button></td></tr>`).join('')||'<tr><td colspan=5>Ningún vehículo en taller</td></tr>'}</table></div>
+  <h2>Talleres mecánicos (${tal.length})</h2><div class="tools"><button class="b" onclick="formTaller()">+ Agregar taller</button></div>
+  <div class="wrap"><table><tr><th>Taller</th><th>Dirección</th><th>Teléfono</th><th>Contacto</th><th>Vehículos arreglados</th><th></th></tr>
+  ${tal.map(t=>{const vs=fin.filter(v=>v.taller_id===t.id);return `<tr><td><b>${esc(t.nombre)}</b></td><td>${esc(t.direccion)}</td><td>${esc(t.telefono)}</td><td>${esc(t.contacto)}</td><td>${vs.length}</td><td><button class="b s" onclick="formTaller('${t.id}')">Editar</button></td></tr>`}).join('')||'<tr><td colspan=6>Todavía no hay talleres cargados</td></tr>'}</table></div>
+  <h2>Registro de arreglos: qué vehículo se arregló dónde</h2>
+  <div class="tools"><input placeholder="Buscar por vehículo o taller…" style="max-width:280px" oninput="filtrarH(this.value)"></div>
+  <div class="wrap"><table id="hist"><tr><th>Ingreso</th><th>Salida</th><th>Unidad</th><th>Taller</th><th>Trabajo</th><th>Costo</th><th>Factura</th></tr>
+  ${fin.map(v=>`<tr><td>${fmtF(v.fecha_ingreso)}</td><td>${fmtF(v.fecha_salida)}</td><td>${esc(nm(U(v.unidad_id)))}</td><td>${esc((TL(v.taller_id)||{}).nombre||'')}</td><td>${esc(v.trabajo)||nf(v)}</td><td>${esc(v.costo)}</td><td>${esc(v.factura)}</td></tr>`).join('')||'<tr><td colspan=7>Sin arreglos registrados</td></tr>'}</table></div>`}
+function filtrarH(v){v=v.toLowerCase();document.querySelectorAll('#hist tr').forEach((r,i)=>{if(i)r.style.display=r.textContent.toLowerCase().includes(v)?'':'none'})}
+let dgFila=null;
+function dgS(e){dgFila=e.currentTarget;e.dataTransfer.effectAllowed='move';e.currentTarget.style.opacity='.4'}
+function dgO(e){e.preventDefault();const t=e.currentTarget;if(!dgFila||t===dgFila)return;const r=t.getBoundingClientRect();t.parentNode.insertBefore(dgFila,e.clientY>r.top+r.height/2?t.nextSibling:t)}
+function dgD(e){e.preventDefault()}
+function dgE(){if(!dgFila)return;dgFila.style.opacity='';dgFila=null;
+  const ids=[...document.querySelectorAll('#cola tr[data-id]')].map(r=>r.dataset.id);
+  document.querySelectorAll('#cola tr[data-id]').forEach((r,i)=>r.children[1].textContent=i+1);
+  ids.forEach((id,i)=>{const f=D.fallas.find(x=>x.id===id);if(f)f.orden=i+1});
+  google.script.run.withFailureHandler(e=>{alert(e.message);cargar()}).apiGuardarOrden(ids)}
+function formTaller(id){const t=id?TL(id):{};abrir(id?'Editar taller':'Nuevo taller mecánico',campo('nombre','Nombre del taller',t.nombre)+campo('direccion','Dirección',t.direccion)+`<div class="row2">${campo('telefono','Teléfono',t.telefono)}${campo('contacto','Contacto',t.contacto)}</div>`+campo('notas','Notas',t.notas,'area'),o=>{if(id)o.id=id;guardar('apiGuardarTaller',o)})}
+function formIngreso(fid){
+  const f=D.fallas.find(x=>x.id===fid);
+  if(!(D.talleres||[]).length){alert('Primero agregá un taller con "+ Agregar taller".');return}
+  const otras=D.fallas.filter(x=>x.unidad_id===f.unidad_id&&x.estado==='ABIERTA');
+  abrir('Ingresar a taller — '+esc(nm(U(f.unidad_id))),
+  `<input type="hidden" name="unidad_id" value="${f.unidad_id}"><div class="f"><label>Taller</label><select name="taller_id">${D.talleres.map(t=>`<option value="${t.id}">${esc(t.nombre)}</option>`).join('')}</select></div>`+campo('fecha_ingreso','Fecha de ingreso',new Date().toISOString().slice(0,10),'date')+
+  `<div class="f"><label>Fallas que se arreglan en esta visita</label>${otras.map(x=>`<p style="margin:3px 0"><label><input type="checkbox" name="f_${x.id}" ${x.id===fid?'checked':''}> ${esc(x.descripcion)}</label></p>`).join('')}</div>`,
+  o=>{o.fallas_ids=Object.keys(o).filter(k=>k.startsWith('f_')).map(k=>k.slice(2)).join(',');guardar('apiIngresarTaller',o)})}
+function formSalidaTaller(vid){
+  const v=D.visitas.find(x=>x.id===vid);
+  abrir('Salida del taller — '+esc(nm(U(v.unidad_id))),
+  `<input type="hidden" name="id" value="${vid}">`+campo('fecha_salida','Fecha de salida',new Date().toISOString().slice(0,10),'date')+campo('trabajo','Trabajo realizado','','area')+`<div class="row2">${campo('costo','Costo','','number')}${campo('factura','N° de factura / remito')}</div>`,
+  o=>guardar('apiSalidaTaller',o))}
 
 function man(){
   return `<div class="tools"><button class="b" onclick="formMant()">+ Registrar mantenimiento / service</button></div><div class="wrap"><table><tr><th>Fecha</th><th>Unidad</th><th>Tipo</th><th>Categoría</th><th>Medidor</th><th>Detalle</th><th>Técnico</th><th>Estado</th><th>Origen</th></tr>
